@@ -2,70 +2,115 @@ import torch
 import numpy as np
 from ..basics import BasicDataset, BasicDataPack
 from pathlib import Path
-from ..utils.image import tensorImage, transformValGen, tensorY
+from .utils import *
+from torch.utils import data as dd
+from functools import partial
+import json
+import io
+
+# bad code
+PADLEN = 100
 
 
-class ClassDataset(BasicDataset):
-    """
-    __init__ params:
-    'x' - list of filepaths
-    'y' - list of targets, each entry can be a single number representing the class or an array containing left, top, right, bottom coordiantes and classes
-    'folder' -  path to the folder contaiting the images.
-    'imSize' - a tuple determining the dimensions of the image.
-     """
-    def __init__(self,x, y, folder, imSize = (224,224), suffix='.jpg' ,transforms = []):
-        super().__init__(x,y)
-        self.imSize = imSize
-        self.folder = folder
-        self.suffix = suffix
+class ImageDataset(dd.Dataset):
+    def __init__(self,x,y, dataReader, preproc, transforms = []):
+        self.examples = list(zip(x,y))
+        self.dataReader = dataReader
+        self.preproc = preproc
         self.transforms = transforms
 
-    def __getitem__(self, index):
+    def __len__(self):
+        return len(self.examples)
+
+    def __getitem__(self,index):
         transformVals = transformValGen(self.transforms)
-        return self.preprocX(index, transformVals), self.preprocY(index, transformVals)
+        x, y = self.dataReader(*self.examples[index])
+        return self.preproc(x, y, transformVals)
 
-    def filePath(self, index):
-        return Path(self.folder) / ( self.x[index] + self.suffix )
-
-    def preprocX(self, index, transformVals):
-        return tensorImage( self.filePath(index) , self.imSize, transformVals)
-
-    def preprocY(self, index, transformVals):
-        return torch.tensor(self.y[index])
-
-class ClassDataPack(BasicDataPack):
-    DS = ClassDataset
+class ImageDataPack(BasicDataPack):
 
     @classmethod
-    def fromSplitLists(cls, trn_x = None, trn_y = None, val_x = None, val_y = None, test_x = None, test_y = None, trn_folder = '.', val_folder = '.', test_folder='.', suffix='.jpg', bs =2, imSize = (224,224), transforms = []):
-        trn_ds, val_ds, test_ds = None, None, None;
-        if trn_x:
-            trn_ds = cls.DS(trn_x, trn_y, trn_folder, imSize, suffix, transforms)
-        if val_x:
-            val_ds = cls.DS(val_x, val_y, val_folder, imSize, suffix)
-        if test_x:
-            test_ds = cls.DS(test_x, test_y, test_folder, imSize, suffix)
-        return cls(trn_ds, val_ds, test_ds, bs)
-
+    def fromReaderAndPreproc(cls, X, Y, dRs, preprocs, transforms):
+        return [ImageDataset(X[i], Y[i], dRs[i], preprocs[i], transforms[i])
+                if X[i] else None for i in range(len(X)) ]
 
     @classmethod
-    def fromSingleList(cls, x,y, split_ratio = [0.8, 0.2], folder = '.', imSize = (224,224), suffix='.jpg', bs=2, transforms = []):
+    def fromSingleList(cls, x,y, split_ratio = [0.8, 0.2], folder = '.', imSize = (224,224), suffix='.jpg', bs=2, transforms = [], dstype = 'classification'):
         trn_ds, val_ds, test_ds = None, None, None
-        split_indices = [ int(split_ratio[0] * len(x)), int((split_ratio[0]+split_ratio[1]) * len(x)) ]
-        return  cls.fromSplitLists( x[:split_indices[0]], y[: split_indices[0]], x[split_indices[0] : split_indices[1]], y[ split_indices[0] : split_indices[1] ],
-                x[split_indices[1] :], y[split_indices[1]:], folder, folder, folder, suffix, bs, imSize, transforms)
+        splitIdxs = [ int(split_ratio[0] * len(x)), int((split_ratio[0]+split_ratio[1]) * len(x)) ]
+        Xs = [  x[:splitIdxs[0]], x[splitIdxs[0]:splitIdxs[1]], x[splitIdxs[1]:]]
+        Ys = [  y[:splitIdxs[0]], y[splitIdxs[0]:splitIdxs[1]], y[splitIdxs[1]:]]
+        return cls.fromSplitLists(Xs, Ys, [folder]*3, suffix, imSize, bs,
+                transforms, dstype  )
+
+    @classmethod
+    def fromSingleMongo(cls, x, y, dbroute, db, collection, imgKey='img', split_ratio = [0.8,0.2], imSize=(224,224), bs=2, transforms = [], dstype='classification' ):
+        splitIdxs = [ int(split_ratio[0] * len(x)), int((split_ratio[0]+split_ratio[1]) * len(x)) ]
+        Xs = [  x[:splitIdxs[0]], x[splitIdxs[0]:splitIdxs[1]], x[splitIdxs[1]:]]
+        Ys = [  y[:splitIdxs[0]], y[splitIdxs[0]:splitIdxs[1]], y[splitIdxs[1]:]]
+        return cls.fromSplitMongo(Xs, Ys, dbroute, db, [collection]*3, imgKey, imSize,
+            bs, transforms, dstype  )
+
+    @classmethod
+    def fromSplitLists(cls, Xs, Ys, folders, suffix='.jpg', imSize = (224,224), bs =2, transforms = [], dstype= 'classification' ):
+        dRs = [ partial(readerFileClassif, folder, suffix) for folder in folders ]
+        preproc = preprocClassif if dstype == 'classification' else preprocDetection
+        preproc = partial(preproc, imSize)
+        return cls(*cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]] ), bs )
+
+    @classmethod
+    def fromSplitMongo(cls, Xs, Ys, dbroute = None, db = None, collections = [], imgKey = 'img',
+            imSize = (224, 224), bs =2, transforms =[], dstype='classification'):
+        dRs = [partial (readMongoClassif, dbroute, db, collection, imgKey) for collection in collections]
+        preproc = preprocClassif if dstype == 'classification' else preprocDetection
+        preproc = partial(preproc, imSize)
+        return cls(*cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]] ), bs )
 
 
-class DetectionDataset(ClassDataset):
 
-    def preprocY(self, index, transformVals):
-        y = tensorY(self.y[index], self.imSize, self.filePath(index),
-                transformVals, max([len(row) for row in self.y]) )
-        return y
+class DetectionDataPack(ImageDataPack):
+    pass
 
-
-class DetectionDataPack(ClassDataPack):
-    DS = DetectionDataset
+__all__ = ['ImageDataset', 'ImageDataPack' ]
 
 
-__all__ = ['ClassDataset', 'ClassDataPack', 'DetectionDataset', 'DetectionDataPack']
+#########################################################
+## functools ##
+#########################################################
+
+def readerFileClassif(folder, suffix, x, y):
+    path = Path(folder)/ ( x + suffix )
+    return Image.open(path), y
+
+def readerFileDetection(folder, suffix, x, y):
+    return readerFileClassif(folder, suffix, x, y)
+
+def readMongoClassif(dbroute, db, collection, imgKey, x, y):
+    x = list(dbQuery(dbroute, db, collection, {'_id': x}, {imgKey:1}) )[0][imgKey]
+    return Image.open(io.BytesIO(x)), y
+
+
+def preprocImage(imSize, x, transformVals):
+    x = TF.resize(x, imSize)
+    x = imageTransform(x, transformVals)
+    x = imageTensor(x)
+    return x
+
+def preprocDetectionTarg( imSize, y, transformVals, imOrgSize):
+    y = np.float32(y)
+    y = targResize(y, imSize, imOrgSize)
+    y = targTransform(y, imSize, transformVals)
+    y = targPad(y,PADLEN)
+    y = torch.tensor(y).float()
+    return y
+
+def preprocClassif(imSize, x, y, transformVals):
+    x = preprocImage(imSize, x, transformVals)
+    return x,y
+
+def preprocDetection(imSize, x, y, transformVals):
+    imOrgSize = x.size
+    x = preprocImage(imSize, x, transformVals)
+    y = preprocDetectionTarg(imSize,y, transformVals,imOrgSize)
+    return x,y
+

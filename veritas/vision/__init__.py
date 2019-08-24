@@ -1,2 +1,3 @@
-from .dataset import ClassDataset, ClassDataPack, DetectionDataset, DetectionDataPack
-__all__ = [ *dataset.__all__]
+#from .dataset import ClassSetFile, ImageDataPack, DetectionSet
+from .dataset import *
+#__all__ = [ *dataset.__all__]

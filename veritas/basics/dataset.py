@@ -4,17 +4,16 @@ import numpy as np
 __all__ = ['BasicDataset', 'BasicDataPack']
 
 class BasicDataset(dd.Dataset):
-    def __init__(self, x,y):
+    def __init__(self, dataReader):
         #x is the input and y is the target
         super().__init__()
-        self.x = x
-        self.y = y
+        self.dataReader = dataReader
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self,index):
-        return np.float32(self.x[index]), np.float32(self.y[index])
+        return self.dataReader.getItem(index)
 
 
 class BasicDataPack:

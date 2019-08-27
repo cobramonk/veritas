@@ -23,11 +23,12 @@ class Trainer:
     def train(self, cycle =1, maxLR = 1e-2, baseLR = None, epochPerCycle = 1, lrFactors=[1] ):
         progressBar = ProgressBar()
         baseLR = baseLR if baseLR else maxLR/10
+        cumTrnLoss, cumValLoss = None, None
         for currentEpoch in range(epochPerCycle * cycle ):
-            if self.md.trn_dl:
+            if hasattr(self.md, 'trn_dl'):
                 cumTrnLoss = self.trainEpoch(progressBar, 'trn', currentEpoch, epochPerCycle,
                         cycle, maxLR, baseLR, lrFactors)
-            if self.md.val_dl:
+            if hasattr(self.md, 'val_dl'):
                 cumValLoss = self.trainEpoch(progressBar, 'val', currentEpoch, epochPerCycle, cycle)
             print('epoch', currentEpoch+1, '/', epochPerCycle * cycle, 'trn loss:', cumTrnLoss, 'val loss:', cumValLoss)
         return
@@ -41,9 +42,9 @@ class Trainer:
         batchLosses = []
         for currentIter , (x, y) in enumerate(dl ):
             x, y = x.cuda(), y.cuda()
-            loss = self.trainBatch(x, y, dsType, maxLR, baseLR, lrFactors, cycle, epochPerCycle, currentEpoch, currentIter, math.ceil( len(ds.y) / self.md.bs ) )
+            loss = self.trainBatch(x, y, dsType, maxLR, baseLR, lrFactors, cycle, epochPerCycle, currentEpoch, currentIter, math.ceil( ds.__len__() / self.md.bs ) )
             batchLosses.append(loss)
-            progressBar.updateStats(currentIter+1, math.ceil( len(ds.y) / self.md.bs ), currentEpoch+1, epochPerCycle * cycle, loss)
+            progressBar.updateStats(currentIter+1, math.ceil( ds.__len__() / self.md.bs ), currentEpoch+1, epochPerCycle * cycle, loss)
         return avg(batchLosses)
 
 
@@ -119,6 +120,7 @@ def annealLR(maxLR, baseLR, cycle, epochPerCycle, batchCount, currentEpoch, curr
 
 
 def getOptimizers(m, optFn, lr, lrFactors = [1]):
+    #return [optFn(m.parameters(), lr)]
     if not lrFactors:
         lrFactors = [1]
     modelParamsArr = getParamsArr(m)

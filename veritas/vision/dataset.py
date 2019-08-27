@@ -30,9 +30,9 @@ class ImageDataset(dd.Dataset):
 class ImageDataPack(BasicDataPack):
 
     @classmethod
-    def fromReaderAndPreproc(cls, X, Y, dRs, preprocs, transforms):
-        return [ImageDataset(X[i], Y[i], dRs[i], preprocs[i], transforms[i])
-                if X[i] else None for i in range(len(X)) ]
+    def fromReaderAndPreproc(cls, X, Y, dRs, preprocs, transforms, bs):
+        return cls(*[ImageDataset(X[i], Y[i], dRs[i], preprocs[i], transforms[i])
+                if X[i] else None for i in range(len(X)) ], bs)
 
     @classmethod
     def fromSingleList(cls, x,y, split_ratio = [0.8, 0.2], folder = '.', imSize = (224,224), suffix='.jpg', bs=2, transforms = [], dstype = 'classification'):
@@ -56,7 +56,7 @@ class ImageDataPack(BasicDataPack):
         dRs = [ partial(readerFileClassif, folder, suffix) for folder in folders ]
         preproc = preprocClassif if dstype == 'classification' else preprocDetection
         preproc = partial(preproc, imSize)
-        return cls(*cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]] ), bs )
+        return cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]], bs )
 
     @classmethod
     def fromSplitMongo(cls, Xs, Ys, dbroute = None, db = None, collections = [], imgKey = 'img',
@@ -64,7 +64,7 @@ class ImageDataPack(BasicDataPack):
         dRs = [partial (readMongoClassif, dbroute, db, collection, imgKey) for collection in collections]
         preproc = preprocClassif if dstype == 'classification' else preprocDetection
         preproc = partial(preproc, imSize)
-        return cls(*cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]] ), bs )
+        return cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]], bs )
 
 
 

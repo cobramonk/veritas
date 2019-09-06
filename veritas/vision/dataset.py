@@ -12,6 +12,65 @@ import io
 PADLEN = 100
 
 
+__all__ = ['ImageDataset', 'ImageDataPack' ]
+
+
+#########################################################
+## functools ##
+#########################################################
+
+def readerFileClassif(folder, suffix, x, y):
+    path = Path(folder)/ ( x + suffix )
+    return Image.open(path).convert('RGB'), y
+
+def readerFileDetection(folder, suffix, x, y):
+    return readerFileClassif(folder, suffix, x, y)
+
+def readerFileSuperRes(xfolder, yfolder, suffix, x, y):
+    return (Image.open( Path(xfolder)/ (x+suffix)).convert('RGB'), 
+            Image.open( Path(yfolder)/ (y+suffix)).convert('RGB'))
+
+def readMongoClassif(dbroute, db, collection, imgKey, x, y):
+    x = list(dbQuery(dbroute, db, collection, {'_id': x}, {imgKey:1}) )[0][imgKey]
+    return Image.open(io.BytesIO(x)).convert('RGB'), y
+
+
+def preprocImage(imSize, x, transformVals):
+    x = TF.resize(x, (imSize[1], imSize[0]))
+    x = imageTransform(x, transformVals)
+    x = imageTensor(x)
+    return x
+
+def preprocDetectionTarg( imSize, y, transformVals, imOrgSize):
+    y = np.float32(y)
+    y = targResize(y, imSize, imOrgSize)
+    y = targTransform(y, imSize, transformVals)
+    y = targPad(y,PADLEN)
+    y = torch.tensor(y).float()
+    return y
+
+def preprocClassif(imSize, x, y, transformVals):
+    x = preprocImage(imSize, x, transformVals)
+    return x,y
+
+def preprocDetection(imSize, x, y, transformVals):
+    imOrgSize = x.size
+    x = preprocImage(imSize, x, transformVals)
+    y = preprocDetectionTarg(imSize,y, transformVals,imOrgSize)
+    return x,y
+
+def preprocSuperRes(imSize, x, y, transformVals):
+    return ( preprocImage(imSize, x, transformVals), 
+            preprocImage(imSize, y, transformVals) )
+
+
+datasetType = {'classification':preprocClassif, 'detection': preprocDetection, 'superres': preprocSuperRes};
+
+###########################################################
+## dataset classes ##
+###########################################################
+
+
 class ImageDataset(dd.Dataset):
     def __init__(self,x,y, dataReader, preproc, transforms = []):
         self.examples = list(zip(x,y))
@@ -70,47 +129,4 @@ class ImageDataPack(BasicDataPack):
 
 class DetectionDataPack(ImageDataPack):
     pass
-
-__all__ = ['ImageDataset', 'ImageDataPack' ]
-
-
-#########################################################
-## functools ##
-#########################################################
-
-def readerFileClassif(folder, suffix, x, y):
-    path = Path(folder)/ ( x + suffix )
-    return Image.open(path), y
-
-def readerFileDetection(folder, suffix, x, y):
-    return readerFileClassif(folder, suffix, x, y)
-
-def readMongoClassif(dbroute, db, collection, imgKey, x, y):
-    x = list(dbQuery(dbroute, db, collection, {'_id': x}, {imgKey:1}) )[0][imgKey]
-    return Image.open(io.BytesIO(x)), y
-
-
-def preprocImage(imSize, x, transformVals):
-    x = TF.resize(x, imSize)
-    x = imageTransform(x, transformVals)
-    x = imageTensor(x)
-    return x
-
-def preprocDetectionTarg( imSize, y, transformVals, imOrgSize):
-    y = np.float32(y)
-    y = targResize(y, imSize, imOrgSize)
-    y = targTransform(y, imSize, transformVals)
-    y = targPad(y,PADLEN)
-    y = torch.tensor(y).float()
-    return y
-
-def preprocClassif(imSize, x, y, transformVals):
-    x = preprocImage(imSize, x, transformVals)
-    return x,y
-
-def preprocDetection(imSize, x, y, transformVals):
-    imOrgSize = x.size
-    x = preprocImage(imSize, x, transformVals)
-    y = preprocDetectionTarg(imSize,y, transformVals,imOrgSize)
-    return x,y
 

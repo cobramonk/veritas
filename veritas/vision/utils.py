@@ -19,7 +19,7 @@ def imageTransform(img, transformVals):
 
 def targPad(y, maxObjCount):
     if maxObjCount == len(y): return y
-    return np.concatenate((y, np.float32([[0,0,0,0,0] for l in range(maxObjCount - len(y))]) ))
+    return np.concatenate((y, np.float32([[0]*len(y[0]) for l in range(maxObjCount - len(y))]) ))
 
 def targResize(y, imSize, imOrgSize):
     y[:,:4] = np.float32([ [ y[i,j] * imSize[j%2]// imOrgSize[j%2] for j in range(4) ]for i in range(len(y)) ])

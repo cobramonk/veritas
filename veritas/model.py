@@ -30,10 +30,10 @@ class ImgClas(nn.Module):
         nodes = {'resnet34':1024,'resnet101':4096,'resnet50':2048}
         nds = nodes[model]
         model = getattr(models,model);
-        body = model(pretrained=True).cuda()
+        body = model(pretrained=True)
         body = list(body.children())[:-2]
-        self.feet = nn.Sequential(*body[0:6]).cuda()
-        self.torso = nn.Sequential(*body[6:]).cuda()
+        self.feet = nn.Sequential(*body[0:6])
+        self.torso = nn.Sequential(*body[6:])
         head = nn.Sequential(
                 AdaptiveConcatPool2d(),
                 Flatten(),
@@ -44,11 +44,11 @@ class ImgClas(nn.Module):
                 nn.BatchNorm1d(512),
                 nn.Dropout(0.5),
                 nn.Linear(512,cats)
-                ).cuda()
+                )
         if custom_head:
-            self.head = custom_head.cuda()
+            self.head = custom_head
         else:
-            self.head = head.cuda()
+            self.head = head
 
     def forward(self,x):
         x = self.torso(self.feet(x))

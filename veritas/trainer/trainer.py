@@ -8,7 +8,7 @@ from ..utils.numeric import avg, to_np
 from ..utils.model import groupParams, getParamsArr
 
 
-__all__ = ['Trainer']
+__all__ = ['Trainer', 'GanTrainer']
 
 
 class Trainer:
@@ -83,6 +83,29 @@ class Trainer:
         for param in self.model.parameters():
             param.requires_grad = True
 
+class GanTrainer(Trainer):
+    def __init__(self, genM,discM, md, k, optFn, metrics=[] ):
+        super().__init__(genM,md, optFn, F.cross_entropy, metrics);
+        self.discModel = discM
+        self.k = k
+
+    def trainBatch(self, x, y, dsType, maxLR, baseLR, lrFactors, cycle, epochPerCycle, currentEpoch, currentIter, batchCount):
+        #train the discriminator
+        lr = annealLR(maxLR, baseLR, cycle, epochPerCycle, currentEpoch, currentIter, batchCount)
+        for i in range(self.k):
+            opt = self.optFn(self.discModel.parameters(), lr)
+            opt.zero_grad()
+            lossD1 = self.lossFn(self.discModel(self.model(x).detach()), torch.zeros(x.shape[0]).long().cuda())
+            lossD1.backward()
+            lossD2 = self.lossFn(self.discModel(y), torch.ones(x.shape[0]).long().cuda())
+            lossD2.backward()
+            opt.step()
+        opt = self.optFn(self.model.parameters(), lr)
+        opt.zero_grad()
+        lossG = self.lossFn(self.discModel(self.model(x)), torch.ones(x.shape[0]).long().cuda())
+        lossG.backward()
+        opt.step()
+        return to_np(F.l1_loss(self.model(x), y))
 
 class ProgressBar:
     def __init__(self):
@@ -107,6 +130,11 @@ class ProgressBar:
         self.t3.value = 'loss: {0:.4f}'.format(loss)
         return
 
+def optimize(model, loss, lr, lrFactors, optFn):
+    opts = getOptimizers(model, optFn, lr, lrFactors)
+    for opt in opts: opt.zero_grad()
+    loss.backward()
+    for opt in opts: opt.step()
 
 def annealFactor(cycle,epochPerCycle, currentEpoch, currentIter, batchCount):
     effCurrentIter = currentEpoch% epochPerCycle * batchCount + currentIter

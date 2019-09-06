@@ -12,7 +12,7 @@ import io
 PADLEN = 100
 
 
-__all__ = ['ImageDataset', 'ImageDataPack' ]
+#__all__ = ['ImageDataset', 'ImageDataPack' ]
 
 
 #########################################################
@@ -23,16 +23,19 @@ def readerFileClassif(folder, suffix, x, y):
     path = Path(folder)/ ( x + suffix )
     return Image.open(path).convert('RGB'), y
 
-def readerFileDetection(folder, suffix, x, y):
-    return readerFileClassif(folder, suffix, x, y)
+def readerFileDetection(*args):
+    return readerFileClassif(*args)
 
 def readerFileSuperRes(xfolder, yfolder, suffix, x, y):
-    return (Image.open( Path(xfolder)/ (x+suffix)).convert('RGB'), 
+    return (Image.open( Path(xfolder)/ (x+suffix)).convert('RGB'),
             Image.open( Path(yfolder)/ (y+suffix)).convert('RGB'))
 
-def readMongoClassif(dbroute, db, collection, imgKey, x, y):
+def readerMongoClassif(dbroute, db, collection, imgKey, x, y):
     x = list(dbQuery(dbroute, db, collection, {'_id': x}, {imgKey:1}) )[0][imgKey]
     return Image.open(io.BytesIO(x)).convert('RGB'), y
+
+def readerMongoDetection(*args):
+    return readerMongoClassif(*args)
 
 
 def preprocImage(imSize, x, transformVals):
@@ -54,13 +57,13 @@ def preprocClassif(imSize, x, y, transformVals):
     return x,y
 
 def preprocDetection(imSize, x, y, transformVals):
-    imOrgSize = x.size
+    imOrgSize = x.size # get size of image before preproc
     x = preprocImage(imSize, x, transformVals)
     y = preprocDetectionTarg(imSize,y, transformVals,imOrgSize)
     return x,y
 
 def preprocSuperRes(imSize, x, y, transformVals):
-    return ( preprocImage(imSize, x, transformVals), 
+    return ( preprocImage(imSize, x, transformVals),
             preprocImage(imSize, y, transformVals) )
 
 
@@ -93,40 +96,60 @@ class ImageDataPack(BasicDataPack):
         return cls(*[ImageDataset(X[i], Y[i], dRs[i], preprocs[i], transforms[i])
                 if X[i] else None for i in range(len(X)) ], bs)
 
+class ClassifDataPack(ImageDataPack):
+    preproc = preprocClassif
+    readerFile = readerFileClassif
+    readerMongo = readerMongoClassif
+
     @classmethod
-    def fromSingleList(cls, x,y, split_ratio = [0.8, 0.2], folder = '.', imSize = (224,224), suffix='.jpg', bs=2, transforms = [], dstype = 'classification'):
+    def fromSingleList(cls, x,y, split_ratio = [0.8, 0.2], folder = '.', imSize = (224,224), suffix='.jpg', bs=2, transforms = [] ):
         trn_ds, val_ds, test_ds = None, None, None
-        splitIdxs = [ int(split_ratio[0] * len(x)), int((split_ratio[0]+split_ratio[1]) * len(x)) ]
-        Xs = [  x[:splitIdxs[0]], x[splitIdxs[0]:splitIdxs[1]], x[splitIdxs[1]:]]
-        Ys = [  y[:splitIdxs[0]], y[splitIdxs[0]:splitIdxs[1]], y[splitIdxs[1]:]]
+        Xs, Ys = splitByRatio(x,y, split_ratio)
         return cls.fromSplitLists(Xs, Ys, [folder]*3, suffix, imSize, bs,
-                transforms, dstype  )
+                transforms)
 
     @classmethod
-    def fromSingleMongo(cls, x, y, dbroute, db, collection, imgKey='img', split_ratio = [0.8,0.2], imSize=(224,224), bs=2, transforms = [], dstype='classification' ):
-        splitIdxs = [ int(split_ratio[0] * len(x)), int((split_ratio[0]+split_ratio[1]) * len(x)) ]
-        Xs = [  x[:splitIdxs[0]], x[splitIdxs[0]:splitIdxs[1]], x[splitIdxs[1]:]]
-        Ys = [  y[:splitIdxs[0]], y[splitIdxs[0]:splitIdxs[1]], y[splitIdxs[1]:]]
+    def fromSingleMongo(cls, x, y, dbroute, db, collection, imgKey='img', split_ratio = [0.8,0.2], imSize=(224,224), bs=2, transforms = []):
+        Xs, Ys = splitByRatio(x,y, split_ratio)
         return cls.fromSplitMongo(Xs, Ys, dbroute, db, [collection]*3, imgKey, imSize,
-            bs, transforms, dstype  )
+            bs, transforms)
 
     @classmethod
-    def fromSplitLists(cls, Xs, Ys, folders, suffix='.jpg', imSize = (224,224), bs =2, transforms = [], dstype= 'classification' ):
-        dRs = [ partial(readerFileClassif, folder, suffix) for folder in folders ]
-        preproc = preprocClassif if dstype == 'classification' else preprocDetection
-        preproc = partial(preproc, imSize)
+    def fromSplitLists(cls, Xs, Ys, folders, suffix='.jpg', imSize = (224,224), bs =2,
+            transforms = []):
+        dRs = [ partial(cls.readerFile, folder, suffix) for folder in folders]
+        preproc = partial(cls.preproc, imSize)
         return cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]], bs )
 
     @classmethod
     def fromSplitMongo(cls, Xs, Ys, dbroute = None, db = None, collections = [], imgKey = 'img',
-            imSize = (224, 224), bs =2, transforms =[], dstype='classification'):
-        dRs = [partial (readMongoClassif, dbroute, db, collection, imgKey) for collection in collections]
-        preproc = preprocClassif if dstype == 'classification' else preprocDetection
-        preproc = partial(preproc, imSize)
+            imSize = (224, 224), bs =2, transforms =[]):
+        dRs = [partial (cls.readerMongo, dbroute, db, collection, imgKey) for collection in collections]
+        preproc = partial(cls.preproc, imSize)
         return cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [],[]], bs )
 
 
 
-class DetectionDataPack(ImageDataPack):
-    pass
+class DetectionDataPack(ClassifDataPack):
+    preproc = preprocClassif
+    readerFile = readerFileClassif
+    readerMongo = readerMongoClassif
+
+class SuperResDataPack(ImageDataPack):
+    preproc = preprocSuperRes
+    readerFile = readerFileSuperRes
+
+    @classmethod
+    def fromSingleList(cls, x, y, split_ratio = [0.8, 0.2], xfolder = 'small',
+            yfolder = 'large', imSize=(256,256), suffix='.jpg', bs=2, transforms=[]):
+        Xs, Ys = splitByRatio(x,y, split_ratio)
+        return cls.fromSplitLists(Xs, Ys, [xfolder]*3, [yfolder]*3, suffix,
+                imSize, bs, transforms)
+
+    @classmethod
+    def fromSplitLists(cls, Xs, Ys, xfolders, yfolders, suffix = '.jpg', imSize=(256, 256), bs=2, transforms=[]):
+        dRs = [ partial(cls.readerFile, xfolder, yfolder, suffix) for xfolder,yfolder
+                in zip(xfolders, yfolders)]
+        preproc = partial(cls.preproc, imSize)
+        return cls.fromReaderAndPreproc(Xs, Ys, dRs, [preproc]*3, [transforms, [], []], bs)
 

@@ -17,6 +17,12 @@ def imageTransform(img, transformVals):
     img = TF.affine(img, transformVals[1], transformVals[2], transformVals[3],0)
     return img
 
+def splitByRatio(x, y, split_ratio):
+    splitIdxs = [ int(split_ratio[0] * len(x)), int((split_ratio[0]+split_ratio[1]) * len(x)) ]
+    Xs = [  x[:splitIdxs[0]], x[splitIdxs[0]:splitIdxs[1]], x[splitIdxs[1]:]]
+    Ys = [  y[:splitIdxs[0]], y[splitIdxs[0]:splitIdxs[1]], y[splitIdxs[1]:]]
+    return Xs, Ys
+
 def targPad(y, maxObjCount):
     if maxObjCount == len(y): return y
     return np.concatenate((y, np.float32([[0]*len(y[0]) for l in range(maxObjCount - len(y))]) ))

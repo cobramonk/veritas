@@ -39,7 +39,7 @@ def readerMongoDetection(*args):
 
 
 def preprocImage(imSize, x, transformVals):
-    x = TF.resize(x, (imSize[1], imSize[0]))
+    x = TF.resize(x, imSize, 1)
     x = imageTransform(x, transformVals)
     x = imageTensor(x)
     return x
@@ -58,6 +58,7 @@ def preprocClassif(imSize, x, y, transformVals):
 
 def preprocDetection(imSize, x, y, transformVals):
     imOrgSize = x.size # get size of image before preproc
+    imOrgSize = imOrgSize[1], imOrgSize[0] #tensors are h,w while images are w,h
     x = preprocImage(imSize, x, transformVals)
     y = preprocDetectionTarg(imSize,y, transformVals,imOrgSize)
     return x,y
@@ -131,9 +132,9 @@ class ClassifDataPack(ImageDataPack):
 
 
 class DetectionDataPack(ClassifDataPack):
-    preproc = preprocClassif
-    readerFile = readerFileClassif
-    readerMongo = readerMongoClassif
+    preproc = preprocDetection
+    readerFile = readerFileDetection
+    readerMongo = readerMongoDetection
 
 class SuperResDataPack(ImageDataPack):
     preproc = preprocSuperRes

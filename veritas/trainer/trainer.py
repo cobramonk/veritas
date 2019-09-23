@@ -84,28 +84,49 @@ class Trainer:
             param.requires_grad = True
 
 class GanTrainer(Trainer):
-    def __init__(self, genM,discM, md, k, optFn, metrics=[] ):
+    def __init__(self, genM,discM, md, k, wgan = False, c=0.01, optFn=optim.RMSprop, lrScale=100, metrics=[] ):
         super().__init__(genM,md, optFn, F.cross_entropy, metrics);
         self.discModel = discM
         self.k = k
+        self.c = c
+        self.wgan = wgan
+        self.lrScale = lrScale
 
-    def trainBatch(self, x, y, dsType, maxLR, baseLR, lrFactors, cycle, epochPerCycle, currentEpoch, currentIter, batchCount):
+    def trainBatch(self, x, y, dsType, maxLR, baseLR, lrFactors, cycle, epochPerCycle, currentEpoch, currentIter, batchCount ):
         #train the discriminator
         lr = annealLR(maxLR, baseLR, cycle, epochPerCycle, currentEpoch, currentIter, batchCount)
+        lossD = 0
         for i in range(self.k):
-            opt = self.optFn(self.discModel.parameters(), lr)
+            opt = self.optFn(self.discModel.parameters(), lr*self.lrScale)
             opt.zero_grad()
-            lossD1 = self.lossFn(self.discModel(self.model(x).detach()), torch.zeros(x.shape[0]).long().cuda())
-            lossD1.backward()
-            lossD2 = self.lossFn(self.discModel(y), torch.ones(x.shape[0]).long().cuda())
-            lossD2.backward()
-            opt.step()
+            if not self.wgan:
+                lossD1 = self.lossFn(self.discModel(self.model(x).detach()), torch.zeros(x.shape[0]).long().cuda())
+                lossD1.backward()
+                lossD2 = self.lossFn(self.discModel(y), torch.ones(x.shape[0]).long().cuda())
+                lossD2.backward()
+                opt.step()
+                lossD += lossD1 + lossD2
+            else:
+                lossD1 =  torch.mean(self.discModel(self.model(y)))
+                lossD1.backward()
+                lossD2 = - torch.mean(self.discModel( self.model(x).detach() ))
+                lossD2.backward()
+                opt.step()
+                lossD += lossD1 + lossD2
+                #print(to_np(lossD1), to_np(lossD2))
+                for p in self.discModel.parameters():
+                    p.data.clamp_(-self.c, self.c )
         opt = self.optFn(self.model.parameters(), lr)
         opt.zero_grad()
-        lossG = self.lossFn(self.discModel(self.model(x)), torch.ones(x.shape[0]).long().cuda())
+        lossG = None
+        if not self.wgan:
+            lossG = self.lossFn(self.discModel(self.model(x)), torch.ones(x.shape[0]).long().cuda())
+        else:
+            lossG = torch.mean(self.discModel(self.model(x)))
         lossG.backward()
         opt.step()
-        return to_np(F.l1_loss(self.model(x), y))
+        #return to_np(F.l1_loss(self.model(x), y))
+        return to_np(lossG)
 
 class ProgressBar:
     def __init__(self):

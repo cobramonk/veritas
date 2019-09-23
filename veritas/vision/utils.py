@@ -33,6 +33,7 @@ def targResize(y, imSize, imOrgSize):
 
 def targTransform(y, imSize, transformVals ):
     if transformVals[2] != (0,0):
+        transformVals[2] = transformVals[2][1], transformVals[2][0]
         y = targTranslate(y, transformVals[2], imSize)
     if transformVals[3] != 0:
         y = targZoom(y, transformVals[3], imSize)
@@ -55,9 +56,9 @@ def transformValGen(transforms):
     if 'rotate' in transforms:
         transformVals[1] = np.random.randint(-15,15)
     if 'translate' in transforms:
-        transformVals[2] = (np.random.randint(0,15), np.random.randint(0,15))
+        transformVals[2] = (np.random.randint(-10,10), np.random.randint(-10,10))
     if 'zoom' in transforms:
-        transformVals[3] = np.random.rand() * 0.1 + 1
+        transformVals[3] = np.random.rand() * 0.01 + 1
     return transformVals
 
 def _shiftToCenter(y, imSize):
